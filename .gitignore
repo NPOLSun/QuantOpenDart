@@ -1,3 +1,4 @@
 *.csv
 myAPI.py
 /DATA/
+/__pycache__/

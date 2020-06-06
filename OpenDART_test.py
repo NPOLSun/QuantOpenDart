@@ -1,6 +1,9 @@
 import OpenDartReader
 import pandas as pd
+import numpy as np
 import sqlite3
+import datetime
+
 import requests
 # API key 따로관리
 import myAPI
@@ -122,6 +125,29 @@ def data_to_standard(df):
 
     return df
 
+# 오늘 날짜의 분기를 뽑아내는 함수
+def today_quarter(today_month):
+    return np.floor(today_month/3.1)+1
+
+def make_y_q_list(year_now, quarter_now, quarters):
+    prv_yrs_req = (quarter_now - quarters) // 4
+    year_start = year_now + prv_yrs_req
+    quarter_start = (quarter_now - quarters) % 4 + 1
+
+    year = year_start
+    quarter = quarter_start
+    y_q_list = []
+    while ((year != year_now) | (quarter != quarter_now)):
+        y_q_list.append(str(year) + '-' + str(quarter))
+        if quarter > 3:
+            year += 1
+            quarter = 1
+        else:
+            quarter += 1
+    y_q_list.append(str(year_now) + '-' + str(quarter_now))
+    return y_q_list
+
+
 
 # 업데이트 필요할때만 가끔씩 하자
 # KRX코드DB저장()
@@ -150,35 +176,38 @@ for market in ['KOSPI']:
     con_market.close()
     code_list = list(code_list["종목코드"])
 
+# 현 날짜 기준 최근 n분기 year-quarter list 산출
+quarters = 6 # 최소 5 이상은 넣자 / 연초까지는 좀.. 되게?
+today = datetime.date.today()
+#Year-Quarter List
+y_q_list = make_y_q_list(today.year, int(today_quarter(today.month)), quarters)
 
-
-year_list =  [2019,2020]
-quarter_list = [1,2,3,4]
-
-con_db = sqlite3.connect("./DATA/db_test.db")
+con_db = sqlite3.connect("./DATA/22.db")
 for code in code_list:
     counter = 0;
-    for year in year_list:
-        for quarter in quarter_list:
-            df_data_temp = data_collection_by_acc_id(code, item_list, item_sj_nm, item_account_id, year, quarter)
-            if counter == 0:
-                df_data = df_data_temp.copy()
-                counter +=1
-            else:
-                df_data = pd.concat([df_data, df_data_temp], axis=1)
-            if quarter==4:
-                col = str(year) + '-4'
-                # 손익계산서 4분기값은 연간총 합이므로, 1~3분기껄 빼줘야한다.
-                corr_list = ['매출액', '매출총이익', '영업이익', '당기순이익', '영업활동현금흐름']
-                try:
-                    for corr in corr_list:
-                        if ((df_data[str(year)+'-1'].loc[corr]==None) | (df_data[str(year)+'-2'].loc[corr]==None) | (df_data[str(year)+'-3'].loc[corr]==None)):
-                            df_data[col][corr] = None
-                        else:
-                            part_sum = int(df_data[str(year)+'-1'][corr]) + int(df_data[str(year)+'-2'][corr]) + int(df_data[str(year)+'-3'][corr]) # 1~3분기 합을 구한 후
-                            df_data[col][corr] = str(int(df_data[col][corr]) - part_sum) # 원래 값에서 빼준다
-                except:
-                    pass
+    for year_quarter in y_q_list:
+        year = int(year_quarter[0:4])
+        quarter = int(year_quarter[-1])
+
+        df_data_temp = data_collection_by_acc_id(code, item_list, item_sj_nm, item_account_id, year, quarter)
+        if counter == 0:
+            df_data = df_data_temp.copy()
+            counter +=1
+        else:
+            df_data = pd.concat([df_data, df_data_temp], axis=1)
+        if quarter==4:
+            col = str(year) + '-4'
+            # 손익계산서 4분기값은 연간총 합이므로, 1~3분기껄 빼줘야한다.
+            corr_list = ['매출액', '매출총이익', '영업이익', '당기순이익', '영업활동현금흐름']
+            try:
+                for corr in corr_list:
+                    if ((df_data[str(year)+'-1'].loc[corr]==None) | (df_data[str(year)+'-2'].loc[corr]==None) | (df_data[str(year)+'-3'].loc[corr]==None)):
+                        df_data[col][corr] = None
+                    else:
+                        part_sum = int(df_data[str(year)+'-1'][corr]) + int(df_data[str(year)+'-2'][corr]) + int(df_data[str(year)+'-3'][corr]) # 1~3분기 합을 구한 후
+                        df_data[col][corr] = str(int(df_data[col][corr]) - part_sum) # 원래 값에서 빼준다
+            except:
+                pass
 
 
     df_data.to_sql(code, con_db, if_exists="replace")
